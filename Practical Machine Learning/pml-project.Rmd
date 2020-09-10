@@ -1,0 +1,101 @@
+---
+title: "Machine Learning Project"
+author: "Hasnat Ali"
+date: "10 sept 2020"
+output: html_document
+---
+
+The main goal of the Project is to quantify how well an individual perform for a particular activity. This will be accomplished by training a prediction model on the accelerometer data. The algorithm that we will be using for this exercise will be a random forest classifier.
+
+We will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. People were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+The training data and the test data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+####Load libraries
+
+```{r}
+library(doMC)
+registerDoMC(cores = 7)
+library(randomForest)
+library(caret)
+```
+
+
+####Download and load data
+```{r, echo=FALSE}
+train_url<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(train_url, destfile="training.csv", method="curl")
+download.file(test_url, destfile="testing.csv", method="curl")
+training<-read.csv("training.csv", na.strings=c("NA","#DIV/0!",""))
+predictDataset<-read.csv("testing.csv",na.strings=c("NA","#DIV/0!",""))
+```
+
+####Clean data
+
+First we remove the columns that aren't the predictor variables
+```{r, cache=TRUE}
+col.rm <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")
+training.rm <- which(colnames(training) %in% col.rm)
+training <- training[, -training.rm]
+```
+
+Next, we write a custom function that removes all collumns with NA values
+```{r, cache=TRUE}
+for (colName in names(training)){
+  if(class(training[[colName]]) %in% c("integer", "numeric")){
+    m<-mean(training[[colName]], na.rm = TRUE)
+    training[[colName]][is.na(training[[colName]])]<-m
+  }
+}
+```
+
+In last cleaning step we remove the columns where variance is near zero.
+```{r, cache=TRUE}
+training<-training[,-nearZeroVar(training)]
+```
+
+####Data partitioning
+Split the data into training and testing datasets.
+```{r, cache=TRUE}
+index <- createDataPartition(y=training$classe, p=0.6, list=FALSE)
+trainingData <- training[ index, ]
+testingData <-  training[ -index, ]
+
+
+train_control <- trainControl(method="cv", number=3)
+model <- train(classe~., data=trainingData, method="rf", trControl = train_control)
+```
+
+####Training
+We'll using Random Forest algorithm with 3 times cross validation and then choose a best model.
+```{r, cache=TRUE}
+train_control <- trainControl(method="cv", number=3)
+model <- train(classe~., data=trainingData, method="rf", trControl = train_control)
+model
+```
+
+####Prediction
+First we'll make predictions on training dataset and then on testing dataset.
+```{r, cache=TRUE}
+prediction <- predict(model, trainingData, type="raw")
+c<-confusionMatrix(prediction, trainingData$classe)
+print("In Sample Error Rate")
+
+prediction <- predict(model, testingData, type="raw")
+c<-confusionMatrix(prediction, testingData$classe)
+
+prediction <- predict(model, predictDataset, type="raw")
+
+print(1-c[["overall"]][["Accuracy"]])
+
+prediction <- predict(model, predictDataset, type="raw")
+```
+
+####Generating files to coursera submitt
+```{r, cache=TRUE}
+for (i in seq(20)){
+  fileName<-paste("problem",i,".txt",sep="_")
+  write.table(prediction[i],file=fileName,quote=FALSE,row.names=FALSE,col.names=FALSE)
+}
+```
